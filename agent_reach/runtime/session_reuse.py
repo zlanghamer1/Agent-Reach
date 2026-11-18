@@ -1,7 +1,8 @@
-"""Site-scoped local session reuse. Source browsers are read-only and never cloned.
+"""Site-scoped session reuse, dedicated browser only (fork).
 
-The user removed the dedicated-only policy. Use existing connected browsers,
-then saved Reach state, before requesting a human login. No password/keychain API.
+This fork restores a dedicated-only policy: cookies are never read from the
+user's own browsers. Only saved Reach state is reused; otherwise the user signs
+in themselves in the dedicated window. No password/keychain API.
 """
 from __future__ import annotations
 
@@ -40,44 +41,19 @@ def profiles() -> list:
             for context in browser.connected_contexts()]
 
 
+NO_COPY_HINT = ("This fork never copies sign-ins from your own browser. "
+                "Run agent-reach login <channel> and sign in yourself in the dedicated window.")
+
+
 def use(profile: str) -> dict:
-    if profile == browser.bound_context() or profile not in browser.connected_contexts():
-        raise ReachError(NEED_SETUP, "Choose a connected local browser profile from browser profiles")
-    def select(data):
-        data["local_browser_source"] = profile
-        data["session_reuse"] = {name: record for name, record in data.get("session_reuse", {}).items()
-                                 if record.get("blocked") or record.get("source") == "manual"}
-    state.mutate(select)
-    return {"source_profile": profile, "scope": "requested site only", "source_changed": False}
+    # Fork: choosing a source browser to copy sign-ins from is disabled.
+    raise ReachError(NEED_SETUP, "Copying sign-ins from another browser is disabled in this fork",
+                     hint=NO_COPY_HINT)
 
 
 def _source_cookies(channel: str, domains) -> tuple[list, str]:
-    from agent_reach.backends.opencli import export_site_cookies
-    try:
-        contexts = [p["id"] for p in profiles() if not p["dedicated"]]
-    except ReachError as exc:
-        if exc.code != NEED_SETUP:
-            raise
-        # Native CLI sessions remain usable when optional OpenCLI/source
-        # discovery is absent or incompatible. Account ambiguity below still
-        # requires a choice rather than silently using another account.
-        contexts = []
-    preferred = state.load().get("local_browser_source")
-    if preferred:
-        contexts = [preferred] if preferred in contexts else []
-    found = []
-    for context in contexts:
-        try:
-            cookies = _cookies([c for domain in domains for c in export_site_cookies(context, domain)], domains)
-        except ReachError:
-            continue  # a disconnected source must not prevent use of saved Reach login
-        if cookies:
-            found.append((cookies, context))
-    if len(found) > 1:
-        raise ReachError(NEED_SETUP, "Several local browsers have cookies for this site; choose which account to reuse",
-                         hint="Run agent-reach browser profiles, then browser use ID. No account was copied.")
-    if found:
-        return found[0]
+    # Fork: never read cookies from the user's own browsers. Only a login the
+    # user made inside Agent Reach's dedicated browser (saved Reach state) is used.
     # Older Reach versions stored the user's login in a per-site owned snapshot.
     source = state.root() / "sessions" / (channel + "-cloak") / "profile" / "reach-session.json"
     try:

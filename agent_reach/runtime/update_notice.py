@@ -17,7 +17,9 @@ from agent_reach.utils.paths import (
 
 from . import state
 
-REPO = "Panniantong/Agent-Reach"
+# Fork: updates come only from this fork, so an upgrade can never bring back
+# the upstream sign-in copy.
+REPO = "zlanghamer1/Agent-Reach"
 FETCH_TIMEOUT = 10.0
 NOTES_MAX = 2000
 

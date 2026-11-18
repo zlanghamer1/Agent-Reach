@@ -31,61 +31,6 @@ def test_retired_raw_import_flags_are_not_accepted(args, monkeypatch, capsys):
     assert not state.load().get("reuse_sources")
 
 
-def test_local_site_export_uses_the_unmodified_upstream_page_api(monkeypatch):
-    from unittest.mock import Mock
-
-    from agent_reach.backends import opencli
-    from agent_reach.runtime import bridge, run
-    source = state.root() / "upstream/dist/src/daemon.js"
-    module = source.parent / "browser/page.js"
-    module.parent.mkdir(parents=True)
-    module.write_text("// official API fixture")
-    monkeypatch.setattr(bridge, "launch_spec", lambda: (["node", str(source)], "1.8.7"))
-    command = Mock(return_value="[]")
-    monkeypatch.setattr(run, "run_cmd", command)
-    assert opencli.export_site_cookies("local", "xiaohongshu.com") == []
-    args = command.call_args.args[0]
-    assert module.as_uri() in args[3] and args[-2:] == ["local", "xiaohongshu.com"]
-    assert module.read_text() == "// official API fixture"
-
-
-def test_site_export_reports_a_missing_bridge_without_reading_cookies(monkeypatch):
-    from agent_reach.backends import opencli
-    from agent_reach.runtime import bridge, run
-
-    monkeypatch.setattr(bridge, "status", lambda: {})
-    monkeypatch.setattr(run, "run_cmd", lambda *a, **k: pytest.fail("read cookies without a Bridge"))
-
-    with pytest.raises(ReachError) as caught:
-        opencli.export_site_cookies("local", "xiaohongshu.com")
-
-    assert caught.value.code == "NEED_SETUP"
-    assert "Bridge" in caught.value.message
-    assert "agent-reach browser setup" in caught.value.hint
-
-
-def test_automatic_reuse_copies_only_the_requested_site_and_reuses_cache(monkeypatch):
-    from unittest.mock import Mock
-
-    from agent_reach.backends import opencli
-    from agent_reach.runtime import session_reuse
-    monkeypatch.setattr(browser, 'ensure_running', lambda: None)
-    monkeypatch.setattr(browser, 'connected_contexts', lambda: ['daily', 'owned'])
-    monkeypatch.setattr(browser, 'bound_context', lambda: 'owned')
-    export = Mock(return_value=[{'name':'sid','value':'test','domain':'.xiaohongshu.com','expirationDate':9999999999,'sameSite':'lax'},
-                                {'name':'foreign','value':'never-copy','domain':'other.test'},
-                                {'name':'expired','value':'never-copy','domain':'.xiaohongshu.com','expirationDate':1}])
-    monkeypatch.setattr(opencli, 'export_site_cookies', export)
-    calls=[]
-    monkeypatch.setattr(cdp, 'call', lambda method, params=None: calls.append((method,params)) or {})
-    result=session_reuse.prepare('xiaohongshu')
-    assert result['copied_cookies']==1 and not result['verified'] and not result['source_changed']
-    cookie=next(params['cookies'][0]for method,params in calls if method=='Storage.setCookies')
-    assert cookie['name']=='sid' and cookie['sameSite']=='Lax' and cookie['expires']==9999999999
-    assert session_reuse.prepare('xiaohongshu')==result
-    export.assert_called_once_with('daily','xiaohongshu.com')
-
-
 @pytest.mark.parametrize("bridge_available", [True, False])
 def test_saved_import_survives_an_hour_without_rereading_the_source(monkeypatch, bridge_available):
     from agent_reach.runtime import bridge, session_reuse
@@ -125,37 +70,12 @@ def test_explicit_import_can_refresh_a_saved_snapshot(monkeypatch):
     assert result['copied_cookies'] == 1 and result['cookie_snapshot'] == 1
 
 
-def test_multiple_local_accounts_are_not_guessed(monkeypatch):
-    from agent_reach.backends import opencli
-    from agent_reach.runtime import session_reuse
-    monkeypatch.setattr(browser,'ensure_running',lambda:None)
-    monkeypatch.setattr(browser,'connected_contexts',lambda:['one','two'])
-    monkeypatch.setattr(opencli,'export_site_cookies',lambda *args:[{'name':'sid','value':'test','domain':'.xiaohongshu.com'}])
-    monkeypatch.setattr(cdp,'call',lambda *a,**k:pytest.fail('ambiguous account copied'))
-    with pytest.raises(ReachError,match='Several'):
-        session_reuse.prepare('xiaohongshu')
-
-
 def test_logout_blocks_automatic_session_revival(monkeypatch):
     from agent_reach.runtime import session_reuse
     monkeypatch.setattr(browser,'ensure_running',lambda:None)
     state.mutate(lambda data:data.update(session_reuse={'xiaohongshu':{'blocked':True}}))
     monkeypatch.setattr(session_reuse,'_source_cookies',lambda *a:pytest.fail('revived logged-out account'))
     assert session_reuse.prepare('xiaohongshu')['blocked']
-
-
-def test_selecting_another_source_keeps_explicit_logout_and_manual_login(monkeypatch):
-    from agent_reach.runtime import session_reuse
-    monkeypatch.setattr(browser,'bound_context',lambda:'owned')
-    monkeypatch.setattr(browser,'connected_contexts',lambda:['daily','owned'])
-    state.mutate(lambda data:data.update(session_reuse={
-        'xiaohongshu':{'blocked':True},'bilibili':{'source':'manual'},'reddit':{'source':'previous','copied_cookies':10}}))
-    session_reuse.use('daily')
-    saved=state.load()
-    assert saved['local_browser_source']=='daily'
-    assert saved['session_reuse']['xiaohongshu']['blocked']
-    assert saved['session_reuse']['bilibili']['source']=='manual'
-    assert 'reddit'not in saved['session_reuse']
 
 
 def test_unavailable_source_keeps_saved_destination_and_does_not_open_login(monkeypatch):
@@ -328,3 +248,55 @@ def test_xueqiu_syncs_reused_browser_login_only_for_community_actions(monkeypatc
     ch._xq_hot_posts(limit=2,timeout=2)
     reuse.assert_called_once_with('xueqiu')
     sync.assert_called_once_with()
+
+
+# ── Fork: sign-ins are never copied from the user's own browsers ──
+
+def test_fork_cookie_export_is_disabled_and_runs_nothing(monkeypatch):
+    from agent_reach.backends import opencli
+    from agent_reach.runtime import bridge, run
+    monkeypatch.setattr(bridge, "require_running", lambda: pytest.fail("contacted the Bridge"))
+    monkeypatch.setattr(run, "run_cmd", lambda *a, **k: pytest.fail("ran the cookie reader"))
+    with pytest.raises(ReachError) as caught:
+        opencli.export_site_cookies("daily", "reddit.com")
+    assert caught.value.code == "NEED_SETUP"
+    assert "disabled" in caught.value.message
+
+
+def test_fork_prepare_never_reads_a_connected_daily_browser(monkeypatch):
+    from agent_reach.backends import opencli
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser, 'ensure_running', lambda: None)
+    monkeypatch.setattr(browser, 'connected_contexts', lambda: ['daily', 'owned'])
+    monkeypatch.setattr(browser, 'bound_context', lambda: 'owned')
+    monkeypatch.setattr(opencli, 'export_site_cookies', lambda *a: pytest.fail('read the daily browser'))
+    monkeypatch.setattr(cdp, 'call', lambda *a, **k: pytest.fail('wrote copied cookies'))
+    result = session_reuse.prepare('reddit')
+    assert result['source'] == 'saved-profile' and result['copied_cookies'] == 0
+
+
+def test_fork_explicit_import_finds_nothing_to_copy(monkeypatch):
+    from agent_reach.backends import opencli
+    from agent_reach.runtime import bridge, session_reuse
+    monkeypatch.setattr(bridge, 'require_running', lambda: {'ok': True})
+    monkeypatch.setattr(browser, 'ensure_running', lambda: None)
+    monkeypatch.setattr(browser, 'connected_contexts', lambda: ['daily', 'owned'])
+    monkeypatch.setattr(browser, 'bound_context', lambda: 'owned')
+    monkeypatch.setattr(opencli, 'export_site_cookies', lambda *a: pytest.fail('read the daily browser'))
+    with pytest.raises(ReachError, match='nothing was copied'):
+        session_reuse.prepare('reddit', force=True)
+
+
+def test_fork_choosing_a_source_browser_is_refused(monkeypatch):
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser, 'connected_contexts', lambda: ['daily', 'owned'])
+    monkeypatch.setattr(browser, 'bound_context', lambda: 'owned')
+    with pytest.raises(ReachError, match='disabled'):
+        session_reuse.use('daily')
+    assert 'local_browser_source' not in state.load()
+
+
+def test_fork_updates_come_only_from_the_fork():
+    from agent_reach.runtime import manage, update_notice
+    assert update_notice.REPO == "zlanghamer1/Agent-Reach"
+    assert "zlanghamer1/Agent-Reach" in manage._source("9.9.9")

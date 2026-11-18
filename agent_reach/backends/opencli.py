@@ -118,23 +118,7 @@ def opencli_items(rows) -> list:
 
 
 def export_site_cookies(profile: str, domain: str) -> list:
-    """Read one site's cookies through the official existing Browser Bridge API."""
-    from pathlib import Path
-
-    from agent_reach.runtime import bridge
+    """Disabled in this fork: never read cookies from the user's own browsers."""
     from agent_reach.runtime.result import NEED_SETUP, ReachError
-    from agent_reach.runtime.run import run_cmd
-    bridge.require_running()
-    argv, _ = bridge.launch_spec()
-    module = Path(argv[-1]).parent / "browser" / "page.js"
-    if not module.is_file():
-        raise ReachError(NEED_SETUP, "This OpenCLI version does not expose its Page cookie API")
-    script = (f"import {{Page}} from {json.dumps(module.as_uri())};"
-              "const page=new Page('reach-site-session',undefined,process.argv[1]);"
-              "console.log(JSON.stringify(await page.getCookies({domain:process.argv[2]})));")
-    try:
-        result = json.loads(run_cmd([argv[0], "--input-type=module", "-e", script, profile, domain], timeout=15))
-    except (ReachError, ValueError):
-        # Never include upstream output here: it may contain credentials.
-        raise ReachError(NEED_SETUP, "The existing browser could not share this site's login") from None
-    return result if isinstance(result, list) else []
+    raise ReachError(NEED_SETUP, "Copying sign-ins from another browser is disabled in this fork",
+                     hint="Run agent-reach login <channel> and sign in yourself in the dedicated window.")

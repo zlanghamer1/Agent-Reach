@@ -1,3 +1,5 @@
+> **Fork notice (zlanghamer1/Agent-Reach):** this fork removes the automatic copy of sign-ins from your own Chrome. Agent Reach only uses logins you make yourself in its dedicated window (`agent-reach login <channel>`), and `agent-reach update` pulls only from this fork. Install: `uv tool install git+https://github.com/zlanghamer1/Agent-Reach@<commit>`.
+
 
 <h1 align="center">👁️ Agent Reach</h1>
 

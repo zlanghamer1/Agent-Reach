@@ -12,14 +12,11 @@
 - 可以并行：同一平台最多同时 2 条，所有平台合计 4 条，多出来的排队，最多等 2 分钟，等不到才返回 `BUSY`。同一平台的两次搜索之间至少隔 10 秒。打开登录窗口、退出登录、重装浏览器会等正在跑的查询结束再做。
 - `agent-reach browser status` 查看状态，`browser setup` 准备内核和扩展，`browser stop` 关闭程序管理的浏览器。
 
-## 自动复用已有登录
+## 不复制已有登录（本分支）
 
-1. 第一次用某个网站时，如果用户的 Chrome 已连接 OpenCLI 扩展，程序把该站的登录（只限该站 Cookie）复制一次到专用浏览器。不复制整个浏览器目录、其他网站或密码库，也不改动来源浏览器。
-2. 复制成功后一直复用保存的会话，不按时间重新复制。Cookie 在不代表登录有效，以真实动作结果为准。
-3. 用户 Chrome 没连扩展时，不能承诺自动复用，也不能据此认定用户没登录；此时用 Reach 已保存的会话。
-4. 本机有多个浏览器都登录了该站时：`agent-reach browser profiles` 列出来源，`agent-reach browser use <ID>` 选定一个，不随机切换。
-5. `agent-reach login <渠道> --import-existing` 主动重新复制一次该站登录，不打开窗口。没找到可复制的登录，或 OpenCLI Bridge 没在运行时，返回 `NEED_SETUP`，已保存的会话不变。
-6. 用户本人在专用窗口里登录过，或执行过 `logout` / `remove`，就不再自动复制，避免已退出的登录复活。
+- 本分支已关闭“自动复用已有登录”：程序从不读取、复制用户日常 Chrome 或其他浏览器的 Cookie。
+- `agent-reach browser use` 会被拒绝；`agent-reach login <渠道> --import-existing` 只能找回 Agent Reach 自己以前保存的会话，找不到就报 `NEED_SETUP`，不复制任何东西。
+- 需要登录时，请用户本人运行 `agent-reach login <渠道>`，在专用窗口登录，建议用小号。
 
 ## 需要本人登录时
 
